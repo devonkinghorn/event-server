@@ -4,7 +4,8 @@ import socket
 import sys
 import traceback
 from http_parser.parser import HttpParser
-p = HttpParser()
+import time
+
 class Poller:
     """ Polling server """
     def __init__(self,port):
@@ -13,6 +14,7 @@ class Poller:
         self.open_socket()
         self.clients = {}
         self.size = 1024
+        self.clientMeta = {}
 
     def open_socket(self):
         """ Setup the socket for incoming clients """
@@ -79,7 +81,15 @@ class Poller:
             client.setblocking(0)
             self.clients[client.fileno()] = client
             self.poller.register(client.fileno(),self.pollmask)
-
+            
+            # add metadata about the client
+            self.clientMeta[client.fileno()] = {
+                "cache": '',
+                "time": time.time()
+            }
+    def makeResponse(self,message):
+        method = message.get_method()
+        
     def handleClient(self,fd):
         try:
             data = self.clients[fd].recv(self.size)
@@ -91,6 +101,15 @@ class Poller:
             sys.exit()
 
         if data:
+            self.clientMeta[fd]['cache'] = self.clientMeta[fd]['cache'].join(data)
+            self.clientMeta[fd]['time'] = time.time()
+            firstMessageLength = self.clientMeta[fd]['cache'].find('\r\n\r\n')
+            if firstMessageLength >= 0:
+                newData = self.clientMeta[fd]['cache'][:firstMessageLength + 4]
+                self.clientMeta[fd]['cache'] = self.clientMeta[fd]['cache'][firstMessageLength + 4:]
+                    p = HttpParser()
+                    nparsed = p.execute(newData, len(newData))
+                    
             self.clients[fd].send(data)
         else:
             self.poller.unregister(fd)
